@@ -1,0 +1,2 @@
+# Limic
+Your AI Clone
