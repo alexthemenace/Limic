@@ -1,12 +1,20 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
+import rateLimit from 'express-rate-limit'
 import { prisma } from '../db/client.js'
 import { signToken } from '../services/jwt.js'
 import { validate } from '../middleware/validate.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 export const authRouter = Router()
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -19,7 +27,7 @@ const loginSchema = z.object({
   password: z.string().min(1),
 })
 
-authRouter.post('/register', validate(registerSchema), async (req, res, next) => {
+authRouter.post('/register', authLimiter, validate(registerSchema), async (req, res, next) => {
   try {
     const { email, password, name } = req.body as z.infer<typeof registerSchema>
 
@@ -41,7 +49,7 @@ authRouter.post('/register', validate(registerSchema), async (req, res, next) =>
   }
 })
 
-authRouter.post('/login', validate(loginSchema), async (req, res, next) => {
+authRouter.post('/login', authLimiter, validate(loginSchema), async (req, res, next) => {
   try {
     const { email, password } = req.body as z.infer<typeof loginSchema>
 
