@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  traits       BehavioralTrait[]
+  sources      UserDataSource[]
+  chatMessages ChatMessage[]
+  messages     IncomingMessage[]
+  negotiations NegotiationThread[]
+}
+
+model BehavioralTrait {
+  id         String   @id @default(cuid())
+  userId     String
+  category   String
+  label      String
+  detail     String
+  confidence Int
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserDataSource {
+  id          String    @id @default(cuid())
+  userId      String
+  sourceId    String
+  connected   Boolean   @default(false)
+  connectedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceId])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String
+  text      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model IncomingMessage {
+  id            String   @id @default(cuid())
+  userId        String
+  sender        String
+  preview       String
+  fullText      String
+  summary       String?
+  responseChips String?
+  handled       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NegotiationThread {
+  id           String   @id @default(cuid())
+  userId       String
+  topic        String
+  participants String
+  messages     String
+  resolved     Boolean  @default(false)
+  status       String   @default("pending")
+  outcome      String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
