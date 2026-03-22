@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   BehavioralTrait,
   DataSource,
@@ -6,184 +6,171 @@ import type {
   IncomingMessage,
   NegotiationThread,
 } from '../types';
+import * as traitsApi from '../api/traits';
+import * as sourcesApi from '../api/sources';
+import * as chatApi from '../api/chat';
+import * as messagesApi from '../api/messages';
+import * as negotiationsApi from '../api/negotiations';
 
-const DEFAULT_TRAITS: BehavioralTrait[] = [
-  {
-    id: '1',
-    category: 'communication',
-    label: 'Blunt & Direct',
-    detail: 'Prefers concise, honest communication without unnecessary fluff.',
-    confidence: 87,
-  },
-  {
-    id: '2',
-    category: 'schedule',
-    label: 'Avoids Morning Meetings',
-    detail: 'Energy peaks mid-morning; dislikes scheduling before 10 AM.',
-    confidence: 92,
-  },
-  {
-    id: '3',
-    category: 'habit',
-    label: 'Invoice Follow-up Gaps',
-    detail: 'Consistently forgets to follow up on outstanding invoices after 14 days.',
-    confidence: 78,
-  },
-  {
-    id: '4',
-    category: 'preference',
-    label: '90s Streetwear Aesthetic',
-    detail: 'Strong interest in vintage streetwear, especially 1990s brands and silhouettes.',
-    confidence: 95,
-  },
-];
+const INITIAL_DITTO_MSG = "Hey! I'm Ditto. Talk to me like I'm a trusted friend — tell me about your goals, frustrations, how you like to work, or anything about your life. I'll pick up on your patterns and build a picture of how you think. 🧠";
 
-const DEFAULT_SOURCES: DataSource[] = [
-  {
-    id: 'gmail',
-    name: 'Gmail',
-    icon: '📧',
-    connected: false,
-    description: 'Learn your email style, contacts & priorities',
-  },
-  {
-    id: 'calendar',
-    name: 'Calendar',
-    icon: '📅',
-    connected: false,
-    description: 'Understand your schedule and energy patterns',
-  },
-  {
-    id: 'notes',
-    name: 'Notes / Notion',
-    icon: '📝',
-    connected: false,
-    description: 'Absorb how you think and organize information',
-  },
-  {
-    id: 'canvas',
-    name: 'Canvas LMS',
-    icon: '🎓',
-    connected: false,
-    description: 'Track academic schedule and deadlines',
-  },
-];
-
-const DEFAULT_MESSAGES: IncomingMessage[] = [
-  {
-    id: '1',
-    sender: 'Jordan M.',
-    preview: 'Hey, so I was thinking about the project and wanted to go over...',
-    fullText:
-      'Hey, so I was thinking about the project and wanted to go over a bunch of stuff with you. Like, first off, the timeline feels off to me, and also I think we need to revisit the budget section because some numbers don\'t quite add up. Oh and also, are you free this week? Let me know what works for you. Also Sarah mentioned something about the presentation but I forgot what it was. Can you follow up with her too?',
-    handled: false,
-  },
-  {
-    id: '2',
-    sender: 'Alex P.',
-    preview: 'Want to hang out Tuesday?',
-    fullText: 'Hey! Want to hang out Tuesday? We could grab food or something.',
-    handled: false,
-  },
-];
-
-const DEFAULT_NEGOTIATIONS: NegotiationThread[] = [
-  {
-    id: '1',
-    topic: 'Group dinner coordination',
-    participants: ['Sam', 'Riley', 'Morgan', 'You'],
-    messages: [
-      'Sam: How about Friday 7pm?',
-      'Riley: I can\'t do Friday, what about Saturday?',
-      'Morgan: Saturday works but not before 7:30.',
-    ],
-    resolved: false,
-    status: 'negotiating',
-  },
-];
-
-export function useDittoStore() {
-  const [traits, setTraits] = useState<BehavioralTrait[]>(DEFAULT_TRAITS);
-  const [sources, setSources] = useState<DataSource[]>(DEFAULT_SOURCES);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: '0',
-      role: 'ditto',
-      text: "Hey! I'm Ditto. Talk to me like I'm a trusted friend — tell me about your goals, frustrations, how you like to work, or anything about your life. I'll pick up on your patterns and build a picture of how you think. 🧠",
-      timestamp: new Date(),
-    },
-  ]);
-  const [incomingMessages, setIncomingMessages] = useState<IncomingMessage[]>(DEFAULT_MESSAGES);
-  const [negotiations, setNegotiations] = useState<NegotiationThread[]>(DEFAULT_NEGOTIATIONS);
+export function useDittoStore(enabled: boolean) {
+  const [traits, setTraits] = useState<BehavioralTrait[]>([]);
+  const [sources, setSources] = useState<DataSource[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [incomingMessages, setIncomingMessages] = useState<IncomingMessage[]>([]);
+  const [negotiations, setNegotiations] = useState<NegotiationThread[]>([]);
   const [onboardingProgress, setOnboardingProgress] = useState(0);
+  const bootstrapped = useRef(false);
 
-  const addChatMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
-    setChatMessages((prev) => [
-      ...prev,
-      { ...msg, id: String(Date.now()), timestamp: new Date() },
-    ]);
+  // Load all data once the user is authenticated
+  useEffect(() => {
+    if (!enabled || bootstrapped.current) return;
+    bootstrapped.current = true;
+
+    Promise.allSettled([
+      traitsApi.getTraits(),
+      sourcesApi.getSources(),
+      chatApi.getChatMessages(),
+      messagesApi.getMessages(),
+      negotiationsApi.getNegotiations(),
+    ]).then(([traitsRes, sourcesRes, chatRes, msgsRes, negsRes]) => {
+      if (traitsRes.status === 'fulfilled') setTraits(traitsRes.value);
+      if (sourcesRes.status === 'fulfilled') setSources(sourcesRes.value);
+      if (chatRes.status === 'fulfilled') {
+        const msgs = chatRes.value;
+        if (msgs.length === 0) {
+          // Seed the welcome message (fire-and-forget, optimistic)
+          chatApi
+            .postChatMessage('ditto', INITIAL_DITTO_MSG)
+            .then((msg) => setChatMessages([msg]))
+            .catch(() => {
+              setChatMessages([
+                {
+                  id: '0',
+                  role: 'ditto',
+                  text: INITIAL_DITTO_MSG,
+                  timestamp: new Date(),
+                },
+              ]);
+            });
+        } else {
+          setChatMessages(msgs);
+        }
+      }
+      if (msgsRes.status === 'fulfilled') setIncomingMessages(msgsRes.value);
+      if (negsRes.status === 'fulfilled') setNegotiations(negsRes.value);
+
+      // Derive onboarding progress from connected sources and chat message count
+      const connectedSources =
+        sourcesRes.status === 'fulfilled'
+          ? sourcesRes.value.filter((s) => s.connected).length
+          : 0;
+      const chatCount =
+        chatRes.status === 'fulfilled'
+          ? chatRes.value.filter((m) => m.role === 'user').length
+          : 0;
+      const traitCount =
+        traitsRes.status === 'fulfilled' ? traitsRes.value.length : 0;
+
+      const derived = Math.min(
+        connectedSources * 10 + chatCount * 5 + traitCount * 8,
+        100
+      );
+      setOnboardingProgress(derived);
+    });
+  }, [enabled]);
+
+  const sendChatMessage = useCallback(async (text: string) => {
+    // Optimistic local add for the user message
+    const optimistic: ChatMessage = {
+      id: `tmp-${Date.now()}`,
+      role: 'user',
+      text,
+      timestamp: new Date(),
+    };
+    setChatMessages((prev) => [...prev, optimistic]);
+
+    try {
+      const saved = await chatApi.postChatMessage('user', text);
+      setChatMessages((prev) => prev.map((m) => (m.id === optimistic.id ? saved : m)));
+    } catch {
+      // keep optimistic entry if persist fails
+    }
   }, []);
 
-  const toggleSource = useCallback((sourceId: string) => {
+  const addDittoReply = useCallback(async (text: string) => {
+    const optimistic: ChatMessage = {
+      id: `tmp-ditto-${Date.now()}`,
+      role: 'ditto',
+      text,
+      timestamp: new Date(),
+    };
+    setChatMessages((prev) => [...prev, optimistic]);
+
+    try {
+      const saved = await chatApi.postChatMessage('ditto', text);
+      setChatMessages((prev) => prev.map((m) => (m.id === optimistic.id ? saved : m)));
+    } catch {
+      // keep optimistic entry if persist fails
+    }
+  }, []);
+
+  const toggleSource = useCallback(async (sourceId: string) => {
+    // Optimistic toggle
     setSources((prev) =>
       prev.map((s) => (s.id === sourceId ? { ...s, connected: !s.connected } : s))
     );
+    try {
+      const updated = await sourcesApi.toggleSource(sourceId);
+      setSources((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    } catch {
+      // Roll back optimistic change
+      setSources((prev) =>
+        prev.map((s) => (s.id === sourceId ? { ...s, connected: !s.connected } : s))
+      );
+    }
   }, []);
 
-  const addTrait = useCallback((trait: Omit<BehavioralTrait, 'id'>) => {
-    setTraits((prev) => [...prev, { ...trait, id: String(Date.now()) }]);
+  const addTrait = useCallback(async (trait: Omit<BehavioralTrait, 'id'>) => {
+    try {
+      const created = await traitsApi.createTrait(trait);
+      setTraits((prev) => [created, ...prev]);
+    } catch {
+      // ignore — user stays on page
+    }
   }, []);
 
-  const summarizeMessage = useCallback((msgId: string) => {
-    setIncomingMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== msgId) return m;
-        // Simulate AI summarization
-        const summaries: Record<string, { summary: string; chips: string[] }> = {
-          '1': {
-            summary:
-              'Jordan wants to review project timeline, budget discrepancies, and schedule time this week. Also wants you to follow up with Sarah about the presentation.',
-            chips: [
-              "Thanks Jordan, let's sync Thursday afternoon — I'll pull up the budget then too.",
-              "Got it. I'll sort out the timeline and ping Sarah. How's Thursday for you?",
-              "Can you send me the specific budget numbers? Then we can do a quick call to align.",
-            ],
-          },
-          '2': {
-            summary: 'Alex is asking if you\'re free Tuesday to hang out.',
-            chips: [
-              "Tuesday's packed — Wednesday evening work for you?",
-              "I'm slammed Tuesday. Let's plan for the weekend!",
-              "Can't do Tuesday, but I'm down for Wednesday or Thursday.",
-            ],
-          },
-        };
-        const result = summaries[msgId] || {
-          summary: 'Message summarized.',
-          chips: ['Sounds good!', 'Let me think about it.', 'Can we talk later?'],
-        };
-        return { ...m, summary: result.summary, responseChips: result.chips };
-      })
-    );
+  const summarizeMessage = useCallback(async (msgId: string) => {
+    try {
+      const updated = await messagesApi.summarizeMessage(msgId);
+      setIncomingMessages((prev) => prev.map((m) => (m.id === msgId ? updated : m)));
+    } catch {
+      // ignore
+    }
   }, []);
 
-  const dismissMessage = useCallback((msgId: string) => {
+  const dismissMessage = useCallback(async (msgId: string) => {
+    // Optimistic dismiss
     setIncomingMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, handled: true } : m)));
+    try {
+      const updated = await messagesApi.dismissMessage(msgId);
+      setIncomingMessages((prev) => prev.map((m) => (m.id === msgId ? updated : m)));
+    } catch {
+      // Roll back
+      setIncomingMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, handled: false } : m))
+      );
+    }
   }, []);
 
-  const resolveNegotiation = useCallback((threadId: string) => {
-    setNegotiations((prev) =>
-      prev.map((t) =>
-        t.id === threadId
-          ? {
-              ...t,
-              resolved: true,
-              status: 'resolved',
-              outcome: 'Saturday at 7:30 PM confirmed for everyone.',
-            }
-          : t
-      )
-    );
+  const resolveNegotiation = useCallback(async (threadId: string) => {
+    try {
+      const updated = await negotiationsApi.resolveNegotiation(threadId);
+      setNegotiations((prev) => prev.map((t) => (t.id === threadId ? updated : t)));
+    } catch {
+      // ignore
+    }
   }, []);
 
   const incrementOnboarding = useCallback(() => {
@@ -197,7 +184,8 @@ export function useDittoStore() {
     incomingMessages,
     negotiations,
     onboardingProgress,
-    addChatMessage,
+    sendChatMessage,
+    addDittoReply,
     toggleSource,
     addTrait,
     summarizeMessage,

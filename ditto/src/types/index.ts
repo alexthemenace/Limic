@@ -51,5 +51,5 @@ export interface DraftRequest {
 
 export interface ResearchRequest {
   topic: string;
-  preferences: string;
+  preferences?: string;
 }

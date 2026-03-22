@@ -1,76 +1,8 @@
 import { useState } from 'react';
+import { draftEmail, researchTopic, type DraftResult, type ResearchResult } from '../api/actions';
+import { ApiError } from '../api/client';
 
 type ActionMode = 'draft' | 'research' | null;
-
-interface DraftResult {
-  subject: string;
-  body: string;
-}
-
-interface ResearchResult {
-  title: string;
-  items: Array<{ name: string; why: string; tag: string }>;
-}
-
-function simulateDraft(context: string, recipient: string, tone: string): DraftResult {
-  const toneMap: Record<string, { open: string; close: string }> = {
-    professional: {
-      open: `Hi ${recipient || 'there'},\n\nI wanted to reach out regarding`,
-      close: '\n\nLooking forward to your response.\n\nBest,\n[Your name]',
-    },
-    casual: {
-      open: `Hey ${recipient || 'there'}!\n\nJust wanted to shoot you a message about`,
-      close: '\n\nLet me know what you think.\n\n— [Your name]',
-    },
-    assertive: {
-      open: `${recipient || 'Hi'},\n\nI need to address`,
-      close:
-        '\n\nI expect a response by end of week. If I don\'t hear back, I\'ll follow up directly.\n\n[Your name]',
-    },
-  };
-  const t = toneMap[tone] || toneMap['professional'];
-
-  const bodyCore =
-    context ||
-    'the matter we discussed. Based on what we\'ve covered, I believe the next steps are clear and I\'d like to confirm we\'re aligned before moving forward.';
-
-  return {
-    subject:
-      tone === 'assertive'
-        ? `Action Required: ${context.slice(0, 40) || 'Follow-Up Needed'}`
-        : `Re: ${context.slice(0, 40) || 'Touching Base'}`,
-    body: `${t.open} ${bodyCore}.${t.close}`,
-  };
-}
-
-function simulateResearch(topic: string): ResearchResult {
-  const defaultItems = [
-    {
-      name: 'Recycle Records, Osaka',
-      why: 'Legendary hidden crate-digging spot — Japanese pressings, unknown stock',
-      tag: '🎵 Vinyl',
-    },
-    {
-      name: 'Haight-Ashbury Vintage (SF)',
-      why: 'Curated 90s streetwear blocks — away from tourist Haight St corridor',
-      tag: '👟 Streetwear',
-    },
-    {
-      name: 'Disk Union, Tokyo',
-      why: 'Multi-floor music store loved by locals, minimal tourist presence',
-      tag: '🎵 Vinyl',
-    },
-    {
-      name: 'Kabukicho Ramen Alley',
-      why: 'Late-night ramen in back alleys — no Yelp, no tourist menus',
-      tag: '🍜 Food',
-    },
-  ];
-  const title = topic
-    ? `Personalized picks for: "${topic.slice(0, 50)}"`
-    : 'Your personalized recommendations';
-  return { title, items: defaultItems };
-}
 
 export function ActionLayer() {
   const [mode, setMode] = useState<ActionMode>(null);
@@ -82,15 +14,28 @@ export function ActionLayer() {
     'professional'
   );
   const [draftResult, setDraftResult] = useState<DraftResult | null>(null);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState('');
   const [copied, setCopied] = useState(false);
 
   // Research state
-  const [researchTopic, setResearchTopic] = useState('');
+  const [researchTopicInput, setResearchTopicInput] = useState('');
   const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState('');
 
-  function handleDraft() {
-    setDraftResult(simulateDraft(draftContext, draftRecipient, draftTone));
-    setCopied(false);
+  async function handleDraft() {
+    setDraftError('');
+    setDraftLoading(true);
+    try {
+      const result = await draftEmail({ context: draftContext, recipient: draftRecipient, tone: draftTone });
+      setDraftResult(result);
+      setCopied(false);
+    } catch (err) {
+      setDraftError(err instanceof ApiError ? err.message : 'Failed to generate draft. Please try again.');
+    } finally {
+      setDraftLoading(false);
+    }
   }
 
   function handleCopy() {
@@ -101,8 +46,17 @@ export function ActionLayer() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function handleResearch() {
-    setResearchResult(simulateResearch(researchTopic));
+  async function handleResearch() {
+    setResearchError('');
+    setResearchLoading(true);
+    try {
+      const result = await researchTopic({ topic: researchTopicInput });
+      setResearchResult(result);
+    } catch (err) {
+      setResearchError(err instanceof ApiError ? err.message : 'Failed to fetch research. Please try again.');
+    } finally {
+      setResearchLoading(false);
+    }
   }
 
   return (
@@ -187,9 +141,11 @@ export function ActionLayer() {
             </div>
           </div>
 
-          <button className="btn btn-primary" onClick={handleDraft}>
-            ✍️ Draft as Me
+          <button className="btn btn-primary" onClick={handleDraft} disabled={draftLoading}>
+            {draftLoading ? '⏳ Generating…' : '✍️ Draft as Me'}
           </button>
+
+          {draftError && <div className="auth-error">{draftError}</div>}
 
           {draftResult && (
             <div className="draft-result">
@@ -223,8 +179,8 @@ export function ActionLayer() {
               className="form-textarea"
               rows={2}
               placeholder="e.g. I want to plan a trip to Japan, but I hate tourist traps and love hidden record stores and vintage streetwear."
-              value={researchTopic}
-              onChange={(e) => setResearchTopic(e.target.value)}
+              value={researchTopicInput}
+              onChange={(e) => setResearchTopicInput(e.target.value)}
             />
           </div>
 
@@ -238,9 +194,11 @@ export function ActionLayer() {
             </div>
           </div>
 
-          <button className="btn btn-primary" onClick={handleResearch}>
-            🔍 Research as Me
+          <button className="btn btn-primary" onClick={handleResearch} disabled={researchLoading}>
+            {researchLoading ? '⏳ Researching…' : '🔍 Research as Me'}
           </button>
+
+          {researchError && <div className="auth-error">{researchError}</div>}
 
           {researchResult && (
             <div className="research-result">
