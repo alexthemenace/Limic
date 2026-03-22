@@ -1,23 +1,33 @@
 import { useState } from 'react'
 import './App.css'
 import { NavBar } from './components/NavBar'
+import { Auth } from './pages/Auth'
 import { Dashboard } from './pages/Dashboard'
 import { Onboarding } from './pages/Onboarding'
 import { ActionLayer } from './pages/ActionLayer'
 import { SocialLayer } from './pages/SocialLayer'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { useDittoStore } from './store/useDittoStore'
 import type { Page } from './types'
 
-function App() {
+function AppContent() {
+  const { user, isLoading, logout } = useAuth()
   const [currentPage, setCurrentPage] = useState<Page>('dashboard')
-  const store = useDittoStore()
+  const store = useDittoStore(Boolean(user))
 
-  function handleSendMessage(text: string) {
-    store.addChatMessage({ role: 'user', text })
+  if (isLoading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-logo">◈ Ditto</div>
+          <p className="auth-sub">Loading…</p>
+        </div>
+      </div>
+    )
   }
 
-  function handleDittoReply(text: string) {
-    store.addChatMessage({ role: 'ditto', text })
+  if (!user) {
+    return <Auth />
   }
 
   return (
@@ -26,6 +36,7 @@ function App() {
         current={currentPage}
         onNavigate={setCurrentPage}
         onboardingProgress={store.onboardingProgress}
+        onLogout={logout}
       />
       <main className="app-main">
         {currentPage === 'dashboard' && (
@@ -40,9 +51,9 @@ function App() {
             chatMessages={store.chatMessages}
             sources={store.sources}
             onboardingProgress={store.onboardingProgress}
-            onSendMessage={handleSendMessage}
+            onSendMessage={store.sendChatMessage}
             onToggleSource={store.toggleSource}
-            onAddDittoReply={handleDittoReply}
+            onAddDittoReply={store.addDittoReply}
             onIncrementProgress={store.incrementOnboarding}
           />
         )}
@@ -58,6 +69,14 @@ function App() {
         )}
       </main>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
 

@@ -18,9 +18,10 @@ interface NavBarProps {
   current: Page;
   onNavigate: (page: Page) => void;
   onboardingProgress: number;
+  onLogout?: () => void;
 }
 
-export function NavBar({ current, onNavigate, onboardingProgress }: NavBarProps) {
+export function NavBar({ current, onNavigate, onboardingProgress, onLogout }: NavBarProps) {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
@@ -69,6 +70,11 @@ export function NavBar({ current, onNavigate, onboardingProgress }: NavBarProps)
           <div className="navbar-user-name">You</div>
           <div className="navbar-user-sub">The Original</div>
         </div>
+        {onLogout && (
+          <button className="btn btn-ghost btn-sm navbar-logout" onClick={onLogout} title="Sign out">
+            ⏏
+          </button>
+        )}
       </div>
     </nav>
   );
